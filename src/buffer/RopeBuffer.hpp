@@ -15,7 +15,7 @@ struct RopeBufferNode {
     RopeBufferNode* parent;
     std::size_t     num_chars;
     std::size_t     num_newlines;
-    char            c;             // '\0' = EOF sentinel
+    char            c; // '\0' = EOF sentinel
 
     std::uint64_t priority;
 
@@ -33,11 +33,11 @@ struct RopeBufferNode {
         delete right;
     }
 
-    std::size_t left_num_chars() const    { return left  ? left->num_chars    : 0; }
-    std::size_t left_num_newlines() const { return left  ? left->num_newlines : 0; }
-    bool        is_newline() const        { return c == '\n'; }
-    bool        is_eof() const            { return c == 0; }
-    std::size_t num_children() const      { return (left != nullptr) + (right != nullptr); }
+    std::size_t left_num_chars() const { return left ? left->num_chars : 0; }
+    std::size_t left_num_newlines() const { return left ? left->num_newlines : 0; }
+    bool        is_newline() const { return c == '\n'; }
+    bool        is_eof() const { return c == 0; }
+    std::size_t num_children() const { return (left != nullptr) + (right != nullptr); }
 };
 
 struct RopeCursor;
@@ -78,20 +78,21 @@ public:
 
 private:
     friend class BufferVisitor;
+    friend class RopeCursor;
 
-    size_t          absolute_position(RopeBufferNode const* cur) const;
-    size_t          absolute_lines(RopeBufferNode const* cur) const;
+    static size_t   absolute_position(RopeBufferNode const* cur);
+    static size_t   absolute_lines(RopeBufferNode const* cur);
     RopeBufferNode* find_start_of_line(size_t line) const;
     size_t          find_length_of_line(size_t line);
 
     uint64_t sample() { return distrib(gen); }
 
-    RopeBufferNode* successor(RopeBufferNode* node) const;
-    RopeBufferNode* predecessor(RopeBufferNode* node) const;
-    void            recompute(RopeBufferNode* node);
-    void            rebalance(RopeBufferNode* node);
-    void            rotate_left(RopeBufferNode* node);
-    void            rotate_right(RopeBufferNode* node);
+    static RopeBufferNode* successor(RopeBufferNode* node);
+    static RopeBufferNode* predecessor(RopeBufferNode* node);
+    void                   recompute(RopeBufferNode* node);
+    void                   rebalance(RopeBufferNode* node);
+    void                   rotate_left(RopeBufferNode* node);
+    void                   rotate_right(RopeBufferNode* node);
 
     std::random_device                      rd;
     std::mt19937                            gen;

@@ -1,9 +1,21 @@
 #include "RopeBuffer.hpp"
 
+#include "types.hpp"
+
+#include <cassert>
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <memory>
 #include <vector>
+
+// ---- Helper --------------------------------------------------------
+void recompute_local(RopeBufferNode* node) {
+    node->num_chars = node->left_num_chars() + ((node->is_eof()) ? 0 : 1) +
+                      ((node->right) ? node->right->num_chars : 0);
+    node->num_newlines = node->left_num_newlines() + ((node->c == '\n') ? 1 : 0) +
+                         ((node->right) ? node->right->num_newlines : 0);
+}
 
 // ---- RopeCursor --------------------------------------------------------
 // Defined here — implementation detail of RopeBuffer, not exposed in header.
@@ -12,11 +24,22 @@
 class RopeCursor : public ICursor {
 public:
     explicit RopeCursor(RopeBufferNode* _node_ptr) : node_ptr(_node_ptr) {}
-    CursorPos logicalPos() const override {
-        // TODO: run back up the tree to figure this out
-        return CursorPos(); // for now just default construct it
-    }
 
+    CursorPos logicalPos() const override {
+        size_t line_containing = RopeBuffer::absolute_lines(node_ptr);
+        size_t col             = 0;
+
+        RopeBufferNode* peek   = node_ptr;
+        RopeBufferNode* behind = RopeBuffer::predecessor(peek);
+
+        while (behind and !behind->is_newline()) {
+            peek   = behind;
+            behind = RopeBuffer::predecessor(peek);
+            ++col;
+        }
+        // either no more behind or end of behind is newline
+        return CursorPos{.row = line_containing, .col = col};
+    }
     RopeBufferNode* node_ptr;
 };
 
@@ -49,7 +72,7 @@ std::unique_ptr<ICursor> RopeBuffer::makeCursor() {
     return std::make_unique<RopeCursor>(root);
 }
 
-size_t RopeBuffer::absolute_position(RopeBufferNode const* curr_node) const {
+size_t RopeBuffer::absolute_position(RopeBufferNode const* curr_node) {
 
     // by convention the logical cursor is to the left of the current node
     // from here traverse to root and sum up all left tree sizes + 1
@@ -73,7 +96,7 @@ size_t RopeBuffer::absolute_position(RopeBufferNode const* curr_node) const {
 /*
     Returns nullptr if it's the rightmost (EOF)
 */
-RopeBufferNode* RopeBuffer::successor(RopeBufferNode* node) const {
+RopeBufferNode* RopeBuffer::successor(RopeBufferNode* node) {
     if (node->is_eof()) {
         return nullptr;
     }
@@ -104,7 +127,7 @@ RopeBufferNode* RopeBuffer::successor(RopeBufferNode* node) const {
 /*
     Returns nullptr if it's the leftmost
 */
-RopeBufferNode* RopeBuffer::predecessor(RopeBufferNode* node) const {
+RopeBufferNode* RopeBuffer::predecessor(RopeBufferNode* node) {
     if (node->left) {
         node = node->left;
         while (node->right) {
@@ -124,7 +147,6 @@ RopeBufferNode* RopeBuffer::predecessor(RopeBufferNode* node) const {
         parent = peek->parent;
     }
 
-    assert(false);
     return nullptr;
 }
 
@@ -247,18 +269,21 @@ void RopeBuffer::moveLineEnd(ICursor& ic) {
 void RopeBuffer::insertChar(ICursor& ic, char c) {
     // insert just one behind the current node
     // find rightmost node on left subtree then rebalance with rotations later?
-
-    RopeCursor      cursor = cur(ic);
+    if (c == '\n') {
+        ++total_lines;
+    }
+    RopeCursor&     cursor = cur(ic);
     RopeBufferNode* parent = cursor.node_ptr;
     if (parent->left) {
         parent = parent->left;
         while (parent->right) {
             parent = parent->right;
         }
+        parent->right = new RopeBufferNode(c, sample(), parent);
     } else {
         parent->left = new RopeBufferNode(c, sample(), parent);
     }
-
+    // recompute(parent);
     rebalance(parent);
 }
 
@@ -281,10 +306,16 @@ void RopeBuffer::deleteForward(ICursor& ic) {
     }
 
     // delete the current node
-    RopeBufferNode* current_node = cursor.node_ptr;
+    RopeBufferNode* original     = cursor.node_ptr;
+    RopeBufferNode* current_node = original;
+    cursor.node_ptr              = successor(original);
+
     if (!current_node->left and !current_node->right) {
         // remember the parent
         RopeBufferNode* parent = current_node->parent;
+        if (current_node->is_newline()) {
+            --total_lines;
+        }
         delete current_node;
         recompute(parent);
         return;
@@ -295,15 +326,26 @@ void RopeBuffer::deleteForward(ICursor& ic) {
         RopeBufferNode* child  = (current_node->left) ? current_node->left : current_node->right;
         RopeBufferNode* parent = current_node->parent;
 
-        if (parent->left == current_node) {
-            parent->left = child;
+        if (!parent) {
+            root = child;
         } else {
-            parent->right = child;
+            if (parent->left == current_node) {
+                parent->left = child;
+            } else {
+                assert(parent->right == current_node);
+                parent->right = child;
+            }
+        }
+        if (child) {
+            child->parent = parent;
         }
 
         // zero out your stuff so dtor works
         current_node->left  = nullptr;
         current_node->right = nullptr;
+        if (current_node->is_newline()) {
+            --total_lines;
+        }
         delete current_node;
         recompute(parent);
         return;
@@ -325,6 +367,9 @@ void RopeBuffer::deleteForward(ICursor& ic) {
         } else {
             succ_parent->right = child;
         }
+        if (child) {
+            child->parent = succ_parent;
+        }
     }
 
     RopeBufferNode* parent = current_node->parent;
@@ -333,11 +378,23 @@ void RopeBuffer::deleteForward(ICursor& ic) {
     } else {
         parent->right = succ;
     }
+    succ->parent = parent;
+    succ->left   = current_node->left;
+    if (current_node->left) {
+        current_node->left->parent = succ;
+    }
+    succ->right = current_node->right;
+    if (current_node->right) {
+        current_node->right->parent = succ;
+    }
 
     current_node->left  = nullptr;
     current_node->right = nullptr;
+    if (current_node->is_newline()) {
+        --total_lines;
+    }
     delete current_node;
-    recompute(succ_parent);
+    recompute(succ_parent == current_node ? succ : succ_parent);
 }
 
 // handle's parent pointers if they exist
@@ -350,11 +407,22 @@ void RopeBuffer::rotate_left(RopeBufferNode* node) {
     RopeBufferNode* rightleft = node->right->left;
 
     node->right = rightleft;
-    right->left = node;
+    if (rightleft) {
+        rightleft->parent = node;
+    }
+
+    right->left  = node;
+    node->parent = right;
 
     if (parent) {
         ((parent->left == node) ? parent->left : parent->right) = right;
     }
+    right->parent = parent;
+
+    // recompute parent, right, node
+    recompute_local(node);
+    recompute_local(right);
+    // recompute_local(parent);
 }
 
 // handle's parent pointers if they exist
@@ -366,12 +434,23 @@ void RopeBuffer::rotate_right(RopeBufferNode* node) {
     assert(left); // if not there's nothing to rotate upwards
     RopeBufferNode* leftright = node->left->right;
 
-    node->left  = leftright;
-    left->right = node;
+    node->left = leftright;
+    if (leftright) {
+        leftright->parent = node;
+    }
+
+    left->right  = node;
+    node->parent = left;
 
     if (parent) {
         ((parent->left == node) ? parent->left : parent->right) = left;
     }
+    left->parent = parent;
+
+    // recompute root, left, node
+    recompute_local(node);
+    recompute_local(left);
+    // recompute_local(parent);
 }
 
 /*
@@ -384,21 +463,18 @@ void RopeBuffer::rotate_right(RopeBufferNode* node) {
 */
 void RopeBuffer::rebalance(RopeBufferNode* node) {
     while (node->parent) { // while we're *not* at root node
+        recompute_local(node);
         if (node->num_children() == 0) {
             node = node->parent; // move towards root node
         } else if (node->num_children() == 1) {
-            RopeBufferNode* parent        = node->parent;
-            bool            is_left_child = (parent->left == node);
             if (node->left and node->left->priority < node->priority) {
                 rotate_right(node);
-            } else if (node->right->priority < node->priority) {
+            } else if (node->right and node->right->priority < node->priority) {
                 rotate_left(node);
             }
         } else {
             assert(not(node->left->priority < node->priority and
                        node->right->priority < node->priority));
-            RopeBufferNode* parent        = node->parent;
-            bool            is_left_child = (parent->left == node);
             if (node->left->priority < node->priority) {
                 rotate_right(node);
             } else if (node->right->priority < node->priority) {
@@ -407,26 +483,27 @@ void RopeBuffer::rebalance(RopeBufferNode* node) {
         }
         node = node->parent; // move towards root node
     }
+    recompute_local(node);
 
     // now we're at root, handle this case a little bit specially
     // cause rotation bullshit
 
     if (node->num_children() == 1) {
         if (node->left and node->left->priority < node->priority) {
-            root = node->right;
-            rotate_right(node);
-        } else if (node->right->priority < node->priority) {
             root = node->left;
+            rotate_right(node);
+        } else if (node->right and node->right->priority < node->priority) {
+            root = node->right;
             rotate_left(node);
         }
     } else if (node->num_children() == 2) {
         assert(
             not(node->left->priority < node->priority and node->right->priority < node->priority));
-        RopeBufferNode* parent        = node->parent;
-        bool            is_left_child = (parent->left == node);
         if (node->left->priority < node->priority) {
+            root = node->left;
             rotate_right(node);
         } else if (node->right->priority < node->priority) {
+            root = node->right;
             rotate_left(node);
         }
     }
@@ -434,10 +511,8 @@ void RopeBuffer::rebalance(RopeBufferNode* node) {
 
 void RopeBuffer::recompute(RopeBufferNode* node) {
     while (node) {
-        node->num_chars = node->left_num_chars() + 1 + ((node->right) ? node->right->num_chars : 0);
-        node->num_newlines = node->left_num_chars() + ((node->c == '\n') ? 1 : 0) +
-                             ((node->right) ? node->right->num_chars : 0);
-        node               = node->parent;
+        recompute_local(node);
+        node = node->parent;
     }
 }
 
@@ -445,7 +520,7 @@ void RopeBuffer::splitLine(ICursor& ic) {
     insertChar(ic, '\n');
 }
 
-size_t RopeBuffer::absolute_lines(RopeBufferNode const* curr_node) const {
+size_t RopeBuffer::absolute_lines(RopeBufferNode const* curr_node) {
 
     // by convention the logical cursor is to the left of the current node
     // from here traverse to root and sum up all left tree sizes + 1
@@ -507,9 +582,9 @@ RopeBufferNode* RopeBuffer::find_start_of_line(size_t line) const {
         } else if (curr_node->left_num_newlines() >= line) {
             curr_node = curr_node->left;
         } else {
-            curr_node = curr_node->right;
-            line -= curr_node->num_newlines;
+            line -= curr_node->left_num_newlines();
             line -= curr_node->is_newline();
+            curr_node = curr_node->right;
         }
     }
 
@@ -520,18 +595,17 @@ RopeBufferNode* RopeBuffer::find_start_of_line(size_t line) const {
         while (curr_node->left) {
             curr_node = curr_node->left;
         }
-    } else {
-        // or first right parent
-        RopeBufferNode* parent = curr_node->parent;
-        // we must have a parent cause minimum EOF should be on our right somewhere..
-        assert(parent);
-        while (parent->left != curr_node) {
-            curr_node = parent;
-            parent    = curr_node->parent;
-        }
+        return curr_node;
     }
-    assert(curr_node != nullptr);
-    return curr_node;
+    // or first right parent
+    RopeBufferNode* parent = curr_node->parent;
+    // we must have a parent cause minimum EOF should be on our right somewhere..
+    assert(parent);
+    while (parent->left != curr_node) {
+        curr_node = parent;
+        parent    = curr_node->parent;
+    }
+    return parent;
 }
 
 void RopeBuffer::loadFromLines(const std::vector<std::string>& lines) {
@@ -564,15 +638,14 @@ void RopeBuffer::loadFromLines(const std::vector<std::string>& lines) {
 
     // Recompute subtree counts bottom-up via post-order DFS.
     std::function<void(RopeBufferNode*)> fix = [&](RopeBufferNode* n) {
-        if (!n) return;
+        if (!n)
+            return;
         fix(n->left);
         fix(n->right);
-        n->num_chars    = (n->left ? n->left->num_chars : 0)
-                        + (n->c != '\0' ? 1 : 0)
-                        + (n->right ? n->right->num_chars : 0);
-        n->num_newlines = (n->left ? n->left->num_newlines : 0)
-                        + (n->c == '\n' ? 1 : 0)
-                        + (n->right ? n->right->num_newlines : 0);
+        n->num_chars = (n->left ? n->left->num_chars : 0) + (n->c != '\0' ? 1 : 0) +
+                       (n->right ? n->right->num_chars : 0);
+        n->num_newlines = (n->left ? n->left->num_newlines : 0) + (n->c == '\n' ? 1 : 0) +
+                          (n->right ? n->right->num_newlines : 0);
     };
     fix(root);
 }
@@ -615,11 +688,12 @@ std::vector<std::string> RopeBuffer::getAllLines() const {
     RopeBufferNode* start_it = find_start_of_line(0);
     buffer.emplace_back();
     while (!start_it->is_eof()) {
-        if (start_it->is_eof()) {
+        if (start_it->is_newline()) {
             buffer.emplace_back();
         } else {
             buffer.back().push_back(start_it->c);
         }
+        start_it = successor(start_it);
     }
 
     return buffer;
