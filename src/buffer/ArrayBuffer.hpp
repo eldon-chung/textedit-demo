@@ -21,7 +21,7 @@ public:
 
     void loadFromLines(const std::vector<std::string>& lines) override;
     std::vector<std::string> getAllLines() const override;
-    std::vector<std::string_view> getLinesView() const override;
+    std::vector<std::string_view> getLinesView(std::size_t startRow, std::size_t count) const override;
 
     std::string bufferTypeName() const override;
 

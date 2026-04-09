@@ -1,5 +1,7 @@
 #include "ArrayBuffer.hpp"
 
+#include <algorithm>
+
 ArrayBuffer::ArrayBuffer() : lines_({""}) {}
 
 std::size_t ArrayBuffer::lineCount() const {
@@ -54,8 +56,10 @@ std::vector<std::string> ArrayBuffer::getAllLines() const {
     return lines_;
 }
 
-std::vector<std::string_view> ArrayBuffer::getLinesView() const {
-    return {lines_.begin(), lines_.end()};
+std::vector<std::string_view> ArrayBuffer::getLinesView(std::size_t startRow, std::size_t count) const {
+    if (startRow >= lines_.size()) return {};
+    std::size_t end = std::min(startRow + count, lines_.size());
+    return {lines_.begin() + startRow, lines_.begin() + end};
 }
 
 std::string ArrayBuffer::bufferTypeName() const {

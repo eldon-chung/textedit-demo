@@ -29,15 +29,22 @@ void TUIDisplay::init() {
 
 void TUIDisplay::run() {
     while (running_) {
-        editor_.withLines([this](const std::vector<std::string_view>& lines, CursorPos cursor,
+        getmaxyx(stdscr, screenRows_, screenCols_);
+        std::size_t drawRows = static_cast<std::size_t>(std::max(0, screenRows_ - 1));
+
+        // Adjust viewport before fetching — getCursor() is a cheap locked read
+        CursorPos cursor = editor_.getCursor();
+        if (cursor.row < viewportTopRow_) {
+            viewportTopRow_ = cursor.row;
+        } else if (drawRows > 0 && cursor.row >= viewportTopRow_ + drawRows) {
+            viewportTopRow_ = cursor.row - (drawRows - 1);
+        }
+
+        // Fetch only the visible range — no copy, zero-indexed slice
+        editor_.withLines(viewportTopRow_, drawRows,
+                          [this](const std::vector<std::string_view>& lines, CursorPos cursor,
                                  const std::string& filePath, const std::string& bufferType,
                                  bool isDirty) {
-            // Scroll viewport so cursor is visible
-            if (cursor.row < viewportTopRow_) {
-                viewportTopRow_ = cursor.row;
-            } else if (cursor.row >= viewportTopRow_ + static_cast<std::size_t>(screenRows_ - 1)) {
-                viewportTopRow_ = cursor.row - static_cast<std::size_t>(screenRows_ - 2);
-            }
             render(lines, cursor, filePath, bufferType, isDirty);
         });
         handleInput();
@@ -46,15 +53,13 @@ void TUIDisplay::run() {
 
 void TUIDisplay::render(const std::vector<std::string_view>& lines, CursorPos cursor,
                         const std::string& filePath, const std::string& bufferType, bool isDirty) {
-    getmaxyx(stdscr, screenRows_, screenCols_);
     erase();
 
     int drawRows = screenRows_ - 1;  // reserve last row for status bar
     for (int r = 0; r < drawRows; ++r) {
-        std::size_t lineIdx = viewportTopRow_ + static_cast<std::size_t>(r);
-        if (lineIdx >= lines.size()) break;
+        if (static_cast<std::size_t>(r) >= lines.size()) break;
 
-        std::string_view line = lines[lineIdx];
+        std::string_view line = lines[static_cast<std::size_t>(r)];
         if (line.size() > static_cast<std::size_t>(screenCols_))
             line = line.substr(0, screenCols_);
         mvprintw(r, 0, "%.*s", static_cast<int>(line.size()), line.data());

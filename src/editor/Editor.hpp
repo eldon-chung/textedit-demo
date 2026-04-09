@@ -40,12 +40,14 @@ public:
     };
     Snapshot getSnapshot() const;
 
-    // Zero-copy TUI path: locks mutex, calls fn(views, cursor) while held
+    // Zero-copy TUI path: locks mutex, fetches only [startRow, startRow+count) lines
     using LinesViewFn = std::function<void(const std::vector<std::string_view>&, CursorPos,
                                            const std::string& filePath,
                                            const std::string& bufferType,
                                            bool isDirty)>;
-    void withLines(const LinesViewFn& fn) const;
+    void withLines(std::size_t startRow, std::size_t count, const LinesViewFn& fn) const;
+
+    CursorPos getCursor() const;
 
     std::mutex& mutex();
 
