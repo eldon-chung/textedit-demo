@@ -10,7 +10,7 @@
 
 class ArrayCursor : public ICursor {
 public:
-    explicit ArrayCursor(CursorPos pos) : pos_(pos) {}
+    ArrayCursor() : pos_{0, 0} {}
     CursorPos logicalPos() const override { return pos_; }
     CursorPos pos_;
 };
@@ -27,7 +27,7 @@ static const ArrayCursor& cur(const ICursor& c) {
 ArrayBuffer::ArrayBuffer() : lines_({""}) {}
 
 std::unique_ptr<ICursor> ArrayBuffer::makeCursor() {
-    return std::make_unique<ArrayCursor>(CursorPos{0, 0});
+    return std::make_unique<ArrayCursor>();
 }
 
 void ArrayBuffer::moveLeft(ICursor& c) {
