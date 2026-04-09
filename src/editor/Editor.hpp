@@ -1,6 +1,8 @@
 #pragma once
 
+#include "buffer/BufferVisitor.hpp"
 #include "buffer/IBuffer.hpp"
+#include "types.hpp"
 
 #include <functional>
 #include <memory>
@@ -8,11 +10,6 @@
 #include <string>
 #include <string_view>
 #include <vector>
-
-struct CursorPos {
-    std::size_t row = 0;
-    std::size_t col = 0;
-};
 
 class Editor {
 public:
@@ -31,14 +28,8 @@ public:
     void setFilePath(const std::string& path);
     const std::string& filePath() const;
 
-    struct Snapshot {
-        std::vector<std::string> lines;
-        CursorPos cursor;
-        std::string bufferType;
-        std::string filePath;
-        bool isDirty;
-    };
-    Snapshot getSnapshot() const;
+    // Visitor path for viz — builds EditorCtx atomically under lock, then dispatches
+    void acceptVisitor(BufferVisitor& v) const;
 
     // Zero-copy TUI path: locks mutex, fetches only [startRow, startRow+count) lines
     using LinesViewFn = std::function<void(const std::vector<std::string_view>&, CursorPos,

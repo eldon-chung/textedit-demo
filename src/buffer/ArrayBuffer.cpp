@@ -1,4 +1,5 @@
 #include "ArrayBuffer.hpp"
+#include "BufferVisitor.hpp"
 
 #include <algorithm>
 
@@ -64,4 +65,8 @@ std::vector<std::string_view> ArrayBuffer::getLinesView(std::size_t startRow, st
 
 std::string ArrayBuffer::bufferTypeName() const {
     return "ArrayBuffer";
+}
+
+void ArrayBuffer::accept(BufferVisitor& v, const BufferVisitor::EditorCtx& ctx) const {
+    v.visit(*this, ctx);
 }

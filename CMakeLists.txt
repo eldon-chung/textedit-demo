@@ -15,6 +15,7 @@ FetchContent_MakeAvailable(httplib)
 add_executable(textedit
     main.cpp
     src/buffer/ArrayBuffer.cpp
+    src/buffer/BufferVisitor.cpp
     src/editor/Editor.cpp
     src/display/TUIDisplay.cpp
     src/server/VisServer.cpp)

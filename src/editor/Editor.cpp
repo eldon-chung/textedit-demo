@@ -112,9 +112,10 @@ const std::string& Editor::filePath() const {
     return filePath_;
 }
 
-Editor::Snapshot Editor::getSnapshot() const {
+void Editor::acceptVisitor(BufferVisitor& v) const {
     std::lock_guard<std::mutex> lock(mutex_);
-    return {buf_->getAllLines(), cursor_, buf_->bufferTypeName(), filePath_, dirty_};
+    BufferVisitor::EditorCtx ctx{cursor_, filePath_, buf_->bufferTypeName(), dirty_};
+    buf_->accept(v, ctx);
 }
 
 void Editor::withLines(std::size_t startRow, std::size_t count, const LinesViewFn& fn) const {

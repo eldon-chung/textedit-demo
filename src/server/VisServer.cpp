@@ -1,10 +1,14 @@
 #include "VisServer.hpp"
 
+#include "buffer/ArrayBuffer.hpp"
+#include "buffer/BufferVisitor.hpp"
+
 #include <httplib.h>
 #include <sstream>
 #include <string>
+#include <vector>
 
-// ---- JSON helpers (hand-rolled) ----------------------------------------
+// ---- JSON helpers -------------------------------------------------------
 
 static std::string jsonEscape(const std::string& s) {
     std::string out;
@@ -21,6 +25,38 @@ static std::string jsonEscape(const std::string& s) {
     }
     return out;
 }
+
+// ---- Concrete visitor ---------------------------------------------------
+
+// Visits the buffer directly and serialises its internals to JSON.
+// Each buffer type gets its own visit() override — the viz adapts to the DS.
+class JsonVizVisitor : public BufferVisitor {
+public:
+    std::string result;
+
+    void visit(const ArrayBuffer& buf, const EditorCtx& ctx) override {
+        const auto& lines = linesOf(buf);  // direct access via attorney accessor
+
+        std::ostringstream o;
+        o << "{\n";
+        o << "  \"bufferType\": \"" << jsonEscape(ctx.bufferType) << "\",\n";
+        o << "  \"filePath\": \""   << jsonEscape(ctx.filePath)   << "\",\n";
+        o << "  \"isDirty\": "      << (ctx.isDirty ? "true" : "false") << ",\n";
+        o << "  \"cursor\": { \"row\": " << ctx.cursor.row
+                          << ", \"col\": " << ctx.cursor.col << " },\n";
+        o << "  \"lineCount\": " << lines.size() << ",\n";
+        o << "  \"lines\": [\n";
+        for (std::size_t i = 0; i < lines.size(); ++i) {
+            o << "    { \"index\": " << i
+              << ", \"text\": \""   << jsonEscape(lines[i]) << "\""
+              << ", \"length\": "   << lines[i].size() << " }";
+            if (i + 1 < lines.size()) o << ",";
+            o << "\n";
+        }
+        o << "  ]\n}\n";
+        result = o.str();
+    }
+};
 
 // ---- VisServer ---------------------------------------------------------
 
@@ -62,26 +98,9 @@ void VisServer::serveLoop() {
 }
 
 std::string VisServer::buildJson() const {
-    auto snap = editor_.getSnapshot();
-
-    std::ostringstream o;
-    o << "{\n";
-    o << "  \"bufferType\": \"" << jsonEscape(snap.bufferType) << "\",\n";
-    o << "  \"filePath\": \""   << jsonEscape(snap.filePath)   << "\",\n";
-    o << "  \"isDirty\": "      << (snap.isDirty ? "true" : "false") << ",\n";
-    o << "  \"cursor\": { \"row\": " << snap.cursor.row
-                      << ", \"col\": " << snap.cursor.col << " },\n";
-    o << "  \"lineCount\": " << snap.lines.size() << ",\n";
-    o << "  \"lines\": [\n";
-    for (std::size_t i = 0; i < snap.lines.size(); ++i) {
-        o << "    { \"index\": " << i
-          << ", \"text\": \""   << jsonEscape(snap.lines[i]) << "\""
-          << ", \"length\": "   << snap.lines[i].size() << " }";
-        if (i + 1 < snap.lines.size()) o << ",";
-        o << "\n";
-    }
-    o << "  ]\n}\n";
-    return o.str();
+    JsonVizVisitor visitor;
+    editor_.acceptVisitor(visitor);
+    return visitor.result;
 }
 
 std::string VisServer::buildHtml() const {

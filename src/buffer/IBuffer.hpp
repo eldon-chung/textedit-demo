@@ -1,5 +1,7 @@
 #pragma once
 
+#include "BufferVisitor.hpp"
+
 #include <cstddef>
 #include <string>
 #include <string_view>
@@ -25,4 +27,6 @@ public:
                                                        std::size_t count) const = 0;           // zero-copy, ranged — caller must hold mutex
 
     virtual std::string bufferTypeName() const = 0;
+
+    virtual void accept(BufferVisitor&, const BufferVisitor::EditorCtx&) const = 0;
 };

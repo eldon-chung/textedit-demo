@@ -25,6 +25,9 @@ public:
 
     std::string bufferTypeName() const override;
 
+    void accept(BufferVisitor&, const BufferVisitor::EditorCtx&) const override;
+
 private:
+    friend class BufferVisitor;  // grants BufferVisitor::linesOf() access to lines_
     std::vector<std::string> lines_;
 };
