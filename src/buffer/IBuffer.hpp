@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <string>
+#include <string_view>
 #include <vector>
 
 class IBuffer {
@@ -19,7 +20,8 @@ public:
     virtual void joinLines(std::size_t row) = 0;                    // backspace at col 0
 
     virtual void loadFromLines(const std::vector<std::string>& lines) = 0;
-    virtual std::vector<std::string> getAllLines() const = 0;
+    virtual std::vector<std::string> getAllLines() const = 0;           // copy — for viz snapshot
+    virtual std::vector<std::string_view> getLinesView() const = 0;    // zero-copy — caller must hold mutex
 
     virtual std::string bufferTypeName() const = 0;
 };

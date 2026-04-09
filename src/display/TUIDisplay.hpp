@@ -2,6 +2,10 @@
 
 #include "editor/Editor.hpp"
 
+#include <string>
+#include <string_view>
+#include <vector>
+
 class TUIDisplay {
 public:
     explicit TUIDisplay(Editor& editor);
@@ -11,8 +15,10 @@ public:
     void run();
 
 private:
-    void render(const Editor::Snapshot& snap);
-    void drawStatusBar(const Editor::Snapshot& snap);
+    void render(const std::vector<std::string_view>& lines, CursorPos cursor,
+                const std::string& filePath, const std::string& bufferType, bool isDirty);
+    void drawStatusBar(CursorPos cursor, const std::string& filePath,
+                       const std::string& bufferType, bool isDirty);
     void handleInput();
 
     Editor& editor_;

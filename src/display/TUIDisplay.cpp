@@ -3,6 +3,8 @@
 #include <ncurses.h>
 #include <algorithm>
 #include <string>
+#include <string_view>
+#include <vector>
 
 TUIDisplay::TUIDisplay(Editor& editor) : editor_(editor) {}
 
@@ -27,43 +29,41 @@ void TUIDisplay::init() {
 
 void TUIDisplay::run() {
     while (running_) {
-        auto snap = editor_.getSnapshot();
-
-        // Scroll viewport so cursor is visible
-        if (snap.cursor.row < viewportTopRow_) {
-            viewportTopRow_ = snap.cursor.row;
-        } else if (snap.cursor.row >= viewportTopRow_ + static_cast<std::size_t>(screenRows_ - 1)) {
-            viewportTopRow_ = snap.cursor.row - static_cast<std::size_t>(screenRows_ - 2);
-        }
-
-        render(snap);
+        editor_.withLines([this](const std::vector<std::string_view>& lines, CursorPos cursor,
+                                 const std::string& filePath, const std::string& bufferType,
+                                 bool isDirty) {
+            // Scroll viewport so cursor is visible
+            if (cursor.row < viewportTopRow_) {
+                viewportTopRow_ = cursor.row;
+            } else if (cursor.row >= viewportTopRow_ + static_cast<std::size_t>(screenRows_ - 1)) {
+                viewportTopRow_ = cursor.row - static_cast<std::size_t>(screenRows_ - 2);
+            }
+            render(lines, cursor, filePath, bufferType, isDirty);
+        });
         handleInput();
     }
 }
 
-void TUIDisplay::render(const Editor::Snapshot& snap) {
+void TUIDisplay::render(const std::vector<std::string_view>& lines, CursorPos cursor,
+                        const std::string& filePath, const std::string& bufferType, bool isDirty) {
     getmaxyx(stdscr, screenRows_, screenCols_);
     erase();
 
     int drawRows = screenRows_ - 1;  // reserve last row for status bar
     for (int r = 0; r < drawRows; ++r) {
         std::size_t lineIdx = viewportTopRow_ + static_cast<std::size_t>(r);
-        if (lineIdx >= snap.lines.size()) break;
+        if (lineIdx >= lines.size()) break;
 
-        const auto& line = snap.lines[lineIdx];
-        // Truncate to screen width
-        int maxCols = screenCols_;
-        std::string display = line.size() > static_cast<std::size_t>(maxCols)
-                              ? line.substr(0, maxCols)
-                              : line;
-        mvprintw(r, 0, "%s", display.c_str());
+        std::string_view line = lines[lineIdx];
+        if (line.size() > static_cast<std::size_t>(screenCols_))
+            line = line.substr(0, screenCols_);
+        mvprintw(r, 0, "%.*s", static_cast<int>(line.size()), line.data());
     }
 
-    drawStatusBar(snap);
+    drawStatusBar(cursor, filePath, bufferType, isDirty);
 
-    // Place cursor
-    int cursorScreenRow = static_cast<int>(snap.cursor.row) - static_cast<int>(viewportTopRow_);
-    int cursorScreenCol = static_cast<int>(snap.cursor.col);
+    int cursorScreenRow = static_cast<int>(cursor.row) - static_cast<int>(viewportTopRow_);
+    int cursorScreenCol = static_cast<int>(cursor.col);
     if (cursorScreenRow >= 0 && cursorScreenRow < screenRows_ - 1) {
         move(cursorScreenRow, std::min(cursorScreenCol, screenCols_ - 1));
     }
@@ -71,12 +71,12 @@ void TUIDisplay::render(const Editor::Snapshot& snap) {
     refresh();
 }
 
-void TUIDisplay::drawStatusBar(const Editor::Snapshot& snap) {
-    std::string name = snap.filePath.empty() ? "[No Name]" : snap.filePath;
-    std::string dirty = snap.isDirty ? " *" : "";
-    std::string pos = std::to_string(snap.cursor.row + 1) + ":" +
-                      std::to_string(snap.cursor.col + 1);
-    std::string status = " " + name + dirty + "  [" + snap.bufferType + "]  " + pos + " ";
+void TUIDisplay::drawStatusBar(CursorPos cursor, const std::string& filePath,
+                               const std::string& bufferType, bool isDirty) {
+    std::string name = filePath.empty() ? "[No Name]" : filePath;
+    std::string dirty = isDirty ? " *" : "";
+    std::string pos = std::to_string(cursor.row + 1) + ":" + std::to_string(cursor.col + 1);
+    std::string status = " " + name + dirty + "  [" + bufferType + "]  " + pos + " ";
 
     attron(COLOR_PAIR(1));
     mvhline(screenRows_ - 1, 0, ' ', screenCols_);

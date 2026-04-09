@@ -117,6 +117,11 @@ Editor::Snapshot Editor::getSnapshot() const {
     return {buf_->getAllLines(), cursor_, buf_->bufferTypeName(), filePath_, dirty_};
 }
 
+void Editor::withLines(const LinesViewFn& fn) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    fn(buf_->getLinesView(), cursor_, filePath_, buf_->bufferTypeName(), dirty_);
+}
+
 std::mutex& Editor::mutex() {
     return mutex_;
 }

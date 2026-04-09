@@ -1,8 +1,9 @@
 #pragma once
 
 #include "IBuffer.hpp"
-#include <vector>
 #include <string>
+#include <string_view>
+#include <vector>
 
 class ArrayBuffer : public IBuffer {
 public:
@@ -20,6 +21,7 @@ public:
 
     void loadFromLines(const std::vector<std::string>& lines) override;
     std::vector<std::string> getAllLines() const override;
+    std::vector<std::string_view> getLinesView() const override;
 
     std::string bufferTypeName() const override;
 
