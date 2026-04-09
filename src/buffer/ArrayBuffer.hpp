@@ -1,33 +1,38 @@
 #pragma once
 
 #include "IBuffer.hpp"
+
 #include <string>
-#include <string_view>
 #include <vector>
 
 class ArrayBuffer : public IBuffer {
 public:
     ArrayBuffer();
 
-    std::size_t lineCount() const override;
-    std::size_t lineLength(std::size_t row) const override;
-    char charAt(std::size_t row, std::size_t col) const override;
-    std::string getLine(std::size_t row) const override;
+    std::unique_ptr<ICursor> makeCursor() override;
 
-    void insertChar(std::size_t row, std::size_t col, char ch) override;
-    void deleteChar(std::size_t row, std::size_t col) override;
-    void splitLine(std::size_t row, std::size_t col) override;
-    void joinLines(std::size_t row) override;
+    void moveLeft(ICursor&) override;
+    void moveRight(ICursor&) override;
+    void moveUp(ICursor&, std::size_t desiredCol) override;
+    void moveDown(ICursor&, std::size_t desiredCol) override;
+    void moveLineStart(ICursor&) override;
+    void moveLineEnd(ICursor&) override;
+
+    void insertChar(ICursor&, char) override;
+    void backspace(ICursor&) override;
+    void deleteForward(ICursor&) override;
+    void splitLine(ICursor&) override;
+
+    std::size_t fetchLines(const ICursor&, std::size_t above, std::size_t below,
+                           std::vector<std::string>& out) const override;
 
     void loadFromLines(const std::vector<std::string>& lines) override;
     std::vector<std::string> getAllLines() const override;
-    std::vector<std::string_view> getLinesView(std::size_t startRow, std::size_t count) const override;
 
     std::string bufferTypeName() const override;
-
     void accept(BufferVisitor&, const BufferVisitor::EditorCtx&) const override;
 
 private:
-    friend class BufferVisitor;  // grants BufferVisitor::linesOf() access to lines_
+    friend class BufferVisitor;
     std::vector<std::string> lines_;
 };

@@ -1,76 +1,64 @@
 #include "Editor.hpp"
 
-#include <fstream>
 #include <algorithm>
+#include <fstream>
 
-Editor::Editor(std::unique_ptr<IBuffer> buf) : buf_(std::move(buf)) {}
+Editor::Editor(std::unique_ptr<IBuffer> buf)
+    : buf_(std::move(buf)), cursor_(buf_->makeCursor()) {}
+
+// ---- Mutations ----------------------------------------------------------
 
 void Editor::insertChar(char ch) {
     std::lock_guard<std::mutex> lock(mutex_);
-    buf_->insertChar(cursor_.row, cursor_.col, ch);
-    ++cursor_.col;
+    buf_->insertChar(*cursor_, ch);
+    desiredCol_ = cursor_->logicalPos().col;
     dirty_ = true;
 }
 
 void Editor::backspace() {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (cursor_.col > 0) {
-        --cursor_.col;
-        buf_->deleteChar(cursor_.row, cursor_.col);
-        dirty_ = true;
-    } else if (cursor_.row > 0) {
-        std::size_t prevLen = buf_->lineLength(cursor_.row - 1);
-        buf_->joinLines(cursor_.row - 1);
-        --cursor_.row;
-        cursor_.col = prevLen;
-        dirty_ = true;
-    }
+    buf_->backspace(*cursor_);
+    desiredCol_ = cursor_->logicalPos().col;
+    dirty_ = true;
 }
 
 void Editor::deleteForward() {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (cursor_.col < buf_->lineLength(cursor_.row)) {
-        buf_->deleteChar(cursor_.row, cursor_.col);
-        dirty_ = true;
-    } else if (cursor_.row + 1 < buf_->lineCount()) {
-        buf_->joinLines(cursor_.row);
-        dirty_ = true;
-    }
+    buf_->deleteForward(*cursor_);
+    desiredCol_ = cursor_->logicalPos().col;
+    dirty_ = true;
 }
 
 void Editor::newline() {
     std::lock_guard<std::mutex> lock(mutex_);
-    buf_->splitLine(cursor_.row, cursor_.col);
-    ++cursor_.row;
-    cursor_.col = 0;
+    buf_->splitLine(*cursor_);
+    desiredCol_ = 0;
     dirty_ = true;
 }
 
+// ---- Navigation ---------------------------------------------------------
+
 void Editor::moveCursor(int drow, int dcol) {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (drow < 0 && cursor_.row > 0) {
-        cursor_.row -= static_cast<std::size_t>(-drow);
-    } else if (drow > 0) {
-        cursor_.row = std::min(cursor_.row + static_cast<std::size_t>(drow),
-                               buf_->lineCount() - 1);
-    }
-    if (dcol < 0 && cursor_.col > 0) {
-        cursor_.col -= static_cast<std::size_t>(-dcol);
-    } else if (dcol > 0) {
-        cursor_.col += static_cast<std::size_t>(dcol);
-    }
-    clampCursor();
+    if      (drow < 0) buf_->moveUp(*cursor_, desiredCol_);
+    else if (drow > 0) buf_->moveDown(*cursor_, desiredCol_);
+    else if (dcol < 0) { buf_->moveLeft(*cursor_);  desiredCol_ = cursor_->logicalPos().col; }
+    else if (dcol > 0) { buf_->moveRight(*cursor_); desiredCol_ = cursor_->logicalPos().col; }
 }
 
 void Editor::moveCursorHome() {
     std::lock_guard<std::mutex> lock(mutex_);
-    cursor_.col = 0;
+    buf_->moveLineStart(*cursor_);
+    desiredCol_ = 0;
 }
 
 void Editor::moveCursorEnd() {
     std::lock_guard<std::mutex> lock(mutex_);
-    cursor_.col = buf_->lineLength(cursor_.row);
+    buf_->moveLineEnd(*cursor_);
+    desiredCol_ = cursor_->logicalPos().col;
 }
+
+// ---- File I/O -----------------------------------------------------------
 
 bool Editor::openFile(const std::string& path) {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -78,13 +66,13 @@ bool Editor::openFile(const std::string& path) {
     if (!f) return false;
     std::vector<std::string> lines;
     std::string line;
-    while (std::getline(f, line)) {
+    while (std::getline(f, line))
         lines.push_back(line);
-    }
     buf_->loadFromLines(lines);
-    cursor_ = {0, 0};
-    filePath_ = path;
-    dirty_ = false;
+    cursor_    = buf_->makeCursor();
+    desiredCol_ = 0;
+    filePath_  = path;
+    dirty_     = false;
     return true;
 }
 
@@ -99,7 +87,7 @@ bool Editor::saveFile(const std::string& path) {
         if (i + 1 < lines.size()) f << '\n';
     }
     filePath_ = path;
-    dirty_ = false;
+    dirty_    = false;
     return true;
 }
 
@@ -112,29 +100,28 @@ const std::string& Editor::filePath() const {
     return filePath_;
 }
 
-void Editor::acceptVisitor(BufferVisitor& v) const {
-    std::lock_guard<std::mutex> lock(mutex_);
-    BufferVisitor::EditorCtx ctx{cursor_, filePath_, buf_->bufferTypeName(), dirty_};
-    buf_->accept(v, ctx);
-}
-
-void Editor::withLines(std::size_t startRow, std::size_t count, const LinesViewFn& fn) const {
-    std::lock_guard<std::mutex> lock(mutex_);
-    fn(buf_->getLinesView(startRow, count), cursor_, filePath_, buf_->bufferTypeName(), dirty_);
-}
+// ---- Read paths ---------------------------------------------------------
 
 CursorPos Editor::getCursor() const {
     std::lock_guard<std::mutex> lock(mutex_);
-    return cursor_;
+    return cursor_->logicalPos();
+}
+
+std::size_t Editor::fetchViewport(std::size_t above, std::size_t below,
+                                  std::vector<std::string>& out,
+                                  ViewState& vs) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    vs = {cursor_->logicalPos(), buf_->bufferTypeName(), filePath_, dirty_};
+    return buf_->fetchLines(*cursor_, above, below, out);
+}
+
+void Editor::acceptVisitor(BufferVisitor& v) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    BufferVisitor::EditorCtx ctx{cursor_->logicalPos(), filePath_,
+                                 buf_->bufferTypeName(), dirty_};
+    buf_->accept(v, ctx);
 }
 
 std::mutex& Editor::mutex() {
     return mutex_;
-}
-
-void Editor::clampCursor() {
-    std::size_t maxRow = buf_->lineCount() - 1;
-    if (cursor_.row > maxRow) cursor_.row = maxRow;
-    std::size_t maxCol = buf_->lineLength(cursor_.row);
-    if (cursor_.col > maxCol) cursor_.col = maxCol;
 }

@@ -3,8 +3,6 @@
 #include <ncurses.h>
 #include <algorithm>
 #include <string>
-#include <string_view>
-#include <vector>
 
 TUIDisplay::TUIDisplay(Editor& editor) : editor_(editor) {}
 
@@ -30,58 +28,62 @@ void TUIDisplay::init() {
 void TUIDisplay::run() {
     while (running_) {
         getmaxyx(stdscr, screenRows_, screenCols_);
-        std::size_t drawRows = static_cast<std::size_t>(std::max(0, screenRows_ - 1));
+        int drawRows = screenRows_ - 1;  // minus status bar
+        if (drawRows <= 0) { handleInput(); continue; }
 
-        // Adjust viewport before fetching — getCursor() is a cheap locked read
+        // 1. Quick cursor read to compute viewport before the fetch
         CursorPos cursor = editor_.getCursor();
-        if (cursor.row < viewportTopRow_) {
-            viewportTopRow_ = cursor.row;
-        } else if (drawRows > 0 && cursor.row >= viewportTopRow_ + drawRows) {
-            viewportTopRow_ = cursor.row - (drawRows - 1);
-        }
 
-        // Fetch only the visible range — no copy, zero-indexed slice
-        editor_.withLines(viewportTopRow_, drawRows,
-                          [this](const std::vector<std::string_view>& lines, CursorPos cursor,
-                                 const std::string& filePath, const std::string& bufferType,
-                                 bool isDirty) {
-            render(lines, cursor, filePath, bufferType, isDirty);
-        });
+        if (cursor.row < viewportTopRow_)
+            viewportTopRow_ = cursor.row;
+        else if (cursor.row >= viewportTopRow_ + static_cast<std::size_t>(drawRows))
+            viewportTopRow_ = cursor.row - static_cast<std::size_t>(drawRows) + 1;
+
+        std::size_t above = cursor.row - viewportTopRow_;
+        std::size_t below = static_cast<std::size_t>(drawRows) - 1 - above;
+
+        // 2. Fetch only the visible range — cursor is the locality hint
+        Editor::ViewState vs;
+        std::size_t startRow = editor_.fetchViewport(above, below, lineBuf_, vs);
+
+        // Actual cursor screen row (may differ from `above` near buffer top)
+        std::size_t cursorScreenRow = vs.cursor.row - startRow;
+
+        render(lineBuf_, cursorScreenRow, vs);
         handleInput();
     }
 }
 
-void TUIDisplay::render(const std::vector<std::string_view>& lines, CursorPos cursor,
-                        const std::string& filePath, const std::string& bufferType, bool isDirty) {
+void TUIDisplay::render(const std::vector<std::string>& lines,
+                        std::size_t cursorScreenRow,
+                        const Editor::ViewState& vs) {
     erase();
 
-    int drawRows = screenRows_ - 1;  // reserve last row for status bar
+    int drawRows = screenRows_ - 1;
     for (int r = 0; r < drawRows; ++r) {
         if (static_cast<std::size_t>(r) >= lines.size()) break;
-
         std::string_view line = lines[static_cast<std::size_t>(r)];
-        if (line.size() > static_cast<std::size_t>(screenCols_))
-            line = line.substr(0, screenCols_);
+        if (static_cast<int>(line.size()) > screenCols_)
+            line = line.substr(0, static_cast<std::size_t>(screenCols_));
         mvprintw(r, 0, "%.*s", static_cast<int>(line.size()), line.data());
     }
 
-    drawStatusBar(cursor, filePath, bufferType, isDirty);
+    drawStatusBar(vs);
 
-    int cursorScreenRow = static_cast<int>(cursor.row) - static_cast<int>(viewportTopRow_);
-    int cursorScreenCol = static_cast<int>(cursor.col);
-    if (cursorScreenRow >= 0 && cursorScreenRow < screenRows_ - 1) {
-        move(cursorScreenRow, std::min(cursorScreenCol, screenCols_ - 1));
-    }
+    int csRow = static_cast<int>(cursorScreenRow);
+    int csCol = static_cast<int>(vs.cursor.col);
+    if (csRow >= 0 && csRow < screenRows_ - 1)
+        move(csRow, std::min(csCol, screenCols_ - 1));
 
     refresh();
 }
 
-void TUIDisplay::drawStatusBar(CursorPos cursor, const std::string& filePath,
-                               const std::string& bufferType, bool isDirty) {
-    std::string name = filePath.empty() ? "[No Name]" : filePath;
-    std::string dirty = isDirty ? " *" : "";
-    std::string pos = std::to_string(cursor.row + 1) + ":" + std::to_string(cursor.col + 1);
-    std::string status = " " + name + dirty + "  [" + bufferType + "]  " + pos + " ";
+void TUIDisplay::drawStatusBar(const Editor::ViewState& vs) {
+    std::string name   = vs.filePath.empty() ? "[No Name]" : vs.filePath;
+    std::string dirty  = vs.isDirty ? " *" : "";
+    std::string pos    = std::to_string(vs.cursor.row + 1) + ":" +
+                         std::to_string(vs.cursor.col + 1);
+    std::string status = " " + name + dirty + "  [" + vs.bufferType + "]  " + pos + " ";
 
     attron(COLOR_PAIR(1));
     mvhline(screenRows_ - 1, 0, ' ', screenCols_);
@@ -100,35 +102,21 @@ void TUIDisplay::handleInput() {
         case KEY_END:   editor_.moveCursorEnd();   break;
 
         case KEY_BACKSPACE:
-        case 127:
-            editor_.backspace();
-            break;
-
-        case KEY_DC:
-            editor_.deleteForward();
-            break;
-
+        case 127:           editor_.backspace();      break;
+        case KEY_DC:        editor_.deleteForward();  break;
         case '\n':
-        case KEY_ENTER:
-            editor_.newline();
-            break;
+        case KEY_ENTER:     editor_.newline();         break;
 
-        case 19:  // Ctrl-S
-            editor_.saveFile(editor_.filePath());
-            break;
-
-        case 17:  // Ctrl-Q
-            running_ = false;
-            break;
+        case 19: editor_.saveFile(editor_.filePath()); break;  // Ctrl-S
+        case 17: running_ = false;                     break;  // Ctrl-Q
 
         case KEY_RESIZE:
             getmaxyx(stdscr, screenRows_, screenCols_);
             break;
 
         default:
-            if (ch >= 32 && ch < 127) {
+            if (ch >= 32 && ch < 127)
                 editor_.insertChar(static_cast<char>(ch));
-            }
             break;
     }
 }

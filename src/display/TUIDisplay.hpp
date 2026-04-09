@@ -3,7 +3,6 @@
 #include "editor/Editor.hpp"
 
 #include <string>
-#include <string_view>
 #include <vector>
 
 class TUIDisplay {
@@ -15,15 +14,17 @@ public:
     void run();
 
 private:
-    void render(const std::vector<std::string_view>& lines, CursorPos cursor,
-                const std::string& filePath, const std::string& bufferType, bool isDirty);
-    void drawStatusBar(CursorPos cursor, const std::string& filePath,
-                       const std::string& bufferType, bool isDirty);
+    void render(const std::vector<std::string>& lines,
+                std::size_t cursorScreenRow,
+                const Editor::ViewState& vs);
+    void drawStatusBar(const Editor::ViewState& vs);
     void handleInput();
 
-    Editor& editor_;
-    bool running_ = false;
+    Editor&     editor_;
+    bool        running_        = false;
     std::size_t viewportTopRow_ = 0;
-    int screenRows_ = 0;
-    int screenCols_ = 0;
+    int         screenRows_     = 0;
+    int         screenCols_     = 0;
+
+    std::vector<std::string> lineBuf_;  // reused across frames
 };
