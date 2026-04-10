@@ -17,12 +17,24 @@ static std::string jsonEscape(const std::string& s) {
     out.reserve(s.size());
     for (char c : s) {
         switch (c) {
-            case '"':  out += "\\\""; break;
-            case '\\': out += "\\\\"; break;
-            case '\n': out += "\\n";  break;
-            case '\r': out += "\\r";  break;
-            case '\t': out += "\\t";  break;
-            default:   out += c;      break;
+        case '"':
+            out += "\\\"";
+            break;
+        case '\\':
+            out += "\\\\";
+            break;
+        case '\n':
+            out += "\\n";
+            break;
+        case '\r':
+            out += "\\r";
+            break;
+        case '\t':
+            out += "\\t";
+            break;
+        default:
+            out += c;
+            break;
         }
     }
     return out;
@@ -30,9 +42,12 @@ static std::string jsonEscape(const std::string& s) {
 
 // Display label for a rope node's character
 static std::string charLabel(char c) {
-    if (c == '\0') return "EOF";
-    if (c == '\n') return "NL";
-    if (c == ' ')  return "\xc2\xb7";  // UTF-8 middle dot ·
+    if (c == '\0')
+        return "EOF";
+    if (c == '\n')
+        return "NL";
+    if (c == ' ')
+        return "\xc2\xb7"; // UTF-8 middle dot ·
     return std::string(1, c);
 }
 
@@ -49,17 +64,17 @@ public:
         std::ostringstream o;
         o << "{\n";
         o << "  \"bufferType\": \"" << jsonEscape(ctx.bufferType) << "\",\n";
-        o << "  \"filePath\": \""   << jsonEscape(ctx.filePath)   << "\",\n";
-        o << "  \"isDirty\": "      << (ctx.isDirty ? "true" : "false") << ",\n";
-        o << "  \"cursor\": { \"row\": " << ctx.cursor.row
-                          << ", \"col\": " << ctx.cursor.col << " },\n";
+        o << "  \"filePath\": \"" << jsonEscape(ctx.filePath) << "\",\n";
+        o << "  \"isDirty\": " << (ctx.isDirty ? "true" : "false") << ",\n";
+        o << "  \"cursor\": { \"row\": " << ctx.cursor.row << ", \"col\": " << ctx.cursor.col
+          << " },\n";
         o << "  \"lineCount\": " << lines.size() << ",\n";
         o << "  \"lines\": [\n";
         for (std::size_t i = 0; i < lines.size(); ++i) {
-            o << "    { \"index\": " << i
-              << ", \"text\": \""   << jsonEscape(lines[i]) << "\""
-              << ", \"length\": "   << lines[i].size() << " }";
-            if (i + 1 < lines.size()) o << ",";
+            o << "    { \"index\": " << i << ", \"text\": \"" << jsonEscape(lines[i]) << "\""
+              << ", \"length\": " << lines[i].size() << " }";
+            if (i + 1 < lines.size())
+                o << ",";
             o << "\n";
         }
         o << "  ]\n}\n";
@@ -75,16 +90,16 @@ public:
         std::ostringstream o;
         o << "{\n";
         o << "  \"bufferType\": \"" << jsonEscape(ctx.bufferType) << "\",\n";
-        o << "  \"filePath\": \""   << jsonEscape(ctx.filePath)   << "\",\n";
-        o << "  \"isDirty\": "      << (ctx.isDirty ? "true" : "false") << ",\n";
-        o << "  \"cursor\": { \"row\": " << ctx.cursor.row
-                          << ", \"col\": " << ctx.cursor.col << " },\n";
-        o << "  \"rootId\": "       << reinterpret_cast<std::size_t>(root) << ",\n";
+        o << "  \"filePath\": \"" << jsonEscape(ctx.filePath) << "\",\n";
+        o << "  \"isDirty\": " << (ctx.isDirty ? "true" : "false") << ",\n";
+        o << "  \"cursor\": { \"row\": " << ctx.cursor.row << ", \"col\": " << ctx.cursor.col
+          << " },\n";
+        o << "  \"rootId\": " << reinterpret_cast<std::size_t>(root) << ",\n";
         o << "  \"nodes\": [\n";
 
         // DFS — track in-order index (x) via a counter passed by ref
         std::size_t inorderIdx = 0;
-        bool first = true;
+        bool        first      = true;
         dfs(o, root, 0, inorderIdx, first);
 
         o << "\n  ]\n}\n";
@@ -95,45 +110,43 @@ public:
     // Pieces behind cursor are colored blue in the frontend; after = amber.
     // The cursor sits at the boundary between the two sets.
     void visit(const PieceTable& buf, const EditorCtx& ctx) override {
-        const std::string&         str       = strOf(buf);
-        std::vector<PieceInfo>     pieces    = piecesOf(buf);
-        std::size_t                numBehind = numBehindOf(buf);
-        std::size_t                relOffset = ctx.cursorHandle
-                                                   ? buf.cursorRelOffset(*ctx.cursorHandle)
-                                                   : 0;
+        const std::string&     str       = strOf(buf);
+        std::vector<PieceInfo> pieces    = piecesOf(buf);
+        std::size_t            numBehind = numBehindOf(buf);
+        std::size_t relOffset = ctx.cursorHandle ? buf.cursorRelOffset(*ctx.cursorHandle) : 0;
 
         std::ostringstream o;
         o << "{\n";
         o << "  \"bufferType\": \"" << jsonEscape(ctx.bufferType) << "\",\n";
-        o << "  \"filePath\": \""   << jsonEscape(ctx.filePath)   << "\",\n";
-        o << "  \"isDirty\": "      << (ctx.isDirty ? "true" : "false") << ",\n";
-        o << "  \"cursor\": { \"row\": " << ctx.cursor.row
-                          << ", \"col\": " << ctx.cursor.col << " },\n";
-        o << "  \"strLen\": "          << str.size() << ",\n";
-        o << "  \"numBehind\": "       << numBehind << ",\n";
+        o << "  \"filePath\": \"" << jsonEscape(ctx.filePath) << "\",\n";
+        o << "  \"isDirty\": " << (ctx.isDirty ? "true" : "false") << ",\n";
+        o << "  \"cursor\": { \"row\": " << ctx.cursor.row << ", \"col\": " << ctx.cursor.col
+          << " },\n";
+        o << "  \"strLen\": " << str.size() << ",\n";
+        o << "  \"numBehind\": " << numBehind << ",\n";
         o << "  \"cursorRelOffset\": " << relOffset << ",\n";
-        o << "  \"str\": \""           << jsonEscape(str) << "\",\n";
+        o << "  \"str\": \"" << jsonEscape(str) << "\",\n";
         o << "  \"pieces\": [\n";
 
         for (std::size_t i = 0; i < pieces.size(); ++i) {
             const PieceInfo& p = pieces[i];
-            std::string content = (p.start <= str.size())
-                ? str.substr(p.start, p.end - p.start) : "";
+            std::string      content =
+                (p.start <= str.size()) ? str.substr(p.start, p.end - p.start) : "";
 
             o << "    {"
-              << " \"idx\": "       << i
-              << ", \"behind\": "   << (p.behind ? "true" : "false")
-              << ", \"start\": "    << p.start
-              << ", \"end\": "      << p.end
-              << ", \"len\": "      << (p.end - p.start)
-              << ", \"content\": \""<< jsonEscape(content) << "\""
+              << " \"idx\": " << i << ", \"behind\": " << (p.behind ? "true" : "false")
+              << ", \"start\": " << p.start << ", \"end\": " << p.end
+              << ", \"len\": " << (p.end - p.start) << ", \"content\": \"" << jsonEscape(content)
+              << "\""
               << ", \"newlines\": [";
             for (std::size_t j = 0; j < p.newlines.size(); ++j) {
-                if (j > 0) o << ", ";
+                if (j > 0)
+                    o << ", ";
                 o << p.newlines[j];
             }
             o << "] }";
-            if (i + 1 < pieces.size()) o << ",";
+            if (i + 1 < pieces.size())
+                o << ",";
             o << "\n";
         }
 
@@ -142,29 +155,25 @@ public:
     }
 
 private:
-    void dfs(std::ostringstream& o,
-             const RopeBufferNode* node,
-             std::size_t depth,
-             std::size_t& inorderIdx,
-             bool& first) const {
-        if (!node) return;
-        dfs(o, node->left,  depth + 1, inorderIdx, first);
+    void dfs(std::ostringstream& o, const RopeBufferNode* node, std::size_t depth,
+             std::size_t& inorderIdx, bool& first) const {
+        if (!node)
+            return;
+        dfs(o, node->left, depth + 1, inorderIdx, first);
 
-        if (!first) o << ",\n";
+        if (!first)
+            o << ",\n";
         first = false;
 
         std::size_t myIdx = inorderIdx++;
         o << "    {"
-          << " \"id\": "           << reinterpret_cast<std::size_t>(node)
-          << ", \"label\": \""     << jsonEscape(charLabel(node->c)) << "\""
-          << ", \"priority\": "    << node->priority
-          << ", \"numChars\": "    << node->num_chars
+          << " \"id\": " << reinterpret_cast<std::size_t>(node) << ", \"label\": \""
+          << jsonEscape(charLabel(node->c)) << "\""
+          << ", \"priority\": " << node->priority << ", \"numChars\": " << node->num_chars
           << ", \"numNewlines\": " << node->num_newlines
-          << ", \"leftId\": "      << reinterpret_cast<std::size_t>(node->left)
-          << ", \"rightId\": "     << reinterpret_cast<std::size_t>(node->right)
-          << ", \"depth\": "       << depth
-          << ", \"x\": "           << myIdx
-          << " }";
+          << ", \"leftId\": " << reinterpret_cast<std::size_t>(node->left)
+          << ", \"rightId\": " << reinterpret_cast<std::size_t>(node->right)
+          << ", \"depth\": " << depth << ", \"x\": " << myIdx << " }";
 
         dfs(o, node->right, depth + 1, inorderIdx, first);
     }
@@ -172,8 +181,7 @@ private:
 
 // ---- VisServer ---------------------------------------------------------
 
-VisServer::VisServer(Editor& editor, int port)
-    : editor_(editor), port_(port) {}
+VisServer::VisServer(Editor& editor, int port) : editor_(editor), port_(port) {}
 
 VisServer::~VisServer() {
     stop();
@@ -181,7 +189,7 @@ VisServer::~VisServer() {
 
 void VisServer::start() {
     running_ = true;
-    thread_ = std::thread(&VisServer::serveLoop, this);
+    thread_  = std::thread(&VisServer::serveLoop, this);
 }
 
 void VisServer::stop() {
@@ -613,7 +621,7 @@ async function refresh() {
 }
 
 applyTransform();
-setInterval(refresh, 500);
+setInterval(refresh, 100);
 refresh();
 </script>
 </body>

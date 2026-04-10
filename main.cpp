@@ -8,9 +8,9 @@
 #include <memory>
 
 int main(int argc, char* argv[]) {
-    auto buf = std::make_unique<ArrayBuffer>();
-    // auto   buf = std::make_unique<RopeBuffer>();
-    // auto   buf = std::make_unique<PieceTable>();
+    // auto buf = std::make_unique<ArrayBuffer>();
+    // auto buf = std::make_unique<RopeBuffer>();
+    auto   buf = std::make_unique<PieceTable>();
     Editor editor(std::move(buf));
 
     if (argc > 1) {
