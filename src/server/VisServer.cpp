@@ -621,7 +621,7 @@ async function refresh() {
 }
 
 applyTransform();
-setInterval(refresh, 100);
+setInterval(refresh, 50);
 refresh();
 </script>
 </body>
