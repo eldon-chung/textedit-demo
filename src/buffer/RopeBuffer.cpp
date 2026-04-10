@@ -205,7 +205,10 @@ void RopeBuffer::moveUp(ICursor& ic, std::size_t desiredCol) {
 
     cursor.node_ptr = curr_node;
 
-    // move right by std::min(desiredCol, line_length)
+    // line_length includes the trailing '\n'; exclude it so we don't
+    // overshoot onto the first character of the next line.
+    if (line_length > 0)
+        --line_length;
     for (size_t i = 0; i < std::min(desiredCol, line_length); ++i) {
         RopeBuffer::moveRight(cursor);
     }
@@ -240,7 +243,10 @@ void RopeBuffer::moveDown(ICursor& ic, std::size_t desiredCol) {
 
     cursor.node_ptr = curr_node;
 
-    // move right by std::min(desiredCol, line_length)
+    // line_length includes the trailing '\n' for non-last lines; exclude it
+    // so we don't overshoot onto the first character of the next line.
+    if (current_line_idx < total_lines - 1 && line_length > 0)
+        --line_length;
     for (size_t i = 0; i < std::min(desiredCol, line_length); ++i) {
         RopeBuffer::moveRight(cursor);
     }
@@ -373,7 +379,9 @@ void RopeBuffer::deleteForward(ICursor& ic) {
     }
 
     RopeBufferNode* parent = current_node->parent;
-    if (parent->left == current_node) {
+    if (!parent) {
+        root = succ;
+    } else if (parent->left == current_node) {
         parent->left = succ;
     } else {
         parent->right = succ;
@@ -613,28 +621,39 @@ void RopeBuffer::loadFromLines(const std::vector<std::string>& lines) {
     root        = nullptr;
     total_lines = lines.empty() ? 1 : lines.size();
 
-    // Build right-skewed treap (valid BST; insert chars in reverse order).
-    // In-order traversal of the result = char0, char1, ..., charN, EOF.
-    RopeBufferNode* tail = new RopeBufferNode('\0', sample(), nullptr); // EOF
+    // Build a valid treap via the O(n) Cartesian-tree stack algorithm.
+    // Nodes are pushed in in-order (left-to-right); the stack tracks the
+    // rightmost spine.  Invariant: stack priorities are non-decreasing
+    // bottom→top (min-heap: lowest priority = highest in tree).
+    std::vector<RopeBufferNode*> stk;
 
-    for (int li = (int)lines.size() - 1; li >= 0; --li) {
-        if (li + 1 < (int)lines.size()) {
-            // newline that separates this line from the next
-            RopeBufferNode* nl = new RopeBufferNode('\n', sample(), nullptr);
-            nl->right          = tail;
-            tail->parent       = nl;
-            tail               = nl;
+    auto push_node = [&](char c) {
+        RopeBufferNode* n          = new RopeBufferNode(c, sample(), nullptr);
+        RopeBufferNode* last_popped = nullptr;
+        while (!stk.empty() && stk.back()->priority > n->priority) {
+            last_popped = stk.back();
+            stk.pop_back();
         }
-        const std::string& line = lines[li];
-        for (int ci = (int)line.size() - 1; ci >= 0; --ci) {
-            RopeBufferNode* node = new RopeBufferNode(line[ci], sample(), nullptr);
-            node->right          = tail;
-            tail->parent         = node;
-            tail                 = node;
+        n->left = last_popped;
+        if (last_popped)
+            last_popped->parent = n;
+        if (!stk.empty()) {
+            stk.back()->right = n;
+            n->parent         = stk.back();
+        } else {
+            root      = n;
+            n->parent = nullptr;
         }
+        stk.push_back(n);
+    };
+
+    for (int li = 0; li < (int)lines.size(); ++li) {
+        if (li > 0)
+            push_node('\n');
+        for (char c : lines[li])
+            push_node(c);
     }
-
-    root = tail; // leftmost node becomes root of right-skewed tree
+    push_node('\0'); // EOF sentinel
 
     // Recompute subtree counts bottom-up via post-order DFS.
     std::function<void(RopeBufferNode*)> fix = [&](RopeBufferNode* n) {
@@ -642,10 +661,7 @@ void RopeBuffer::loadFromLines(const std::vector<std::string>& lines) {
             return;
         fix(n->left);
         fix(n->right);
-        n->num_chars = (n->left ? n->left->num_chars : 0) + (n->c != '\0' ? 1 : 0) +
-                       (n->right ? n->right->num_chars : 0);
-        n->num_newlines = (n->left ? n->left->num_newlines : 0) + (n->c == '\n' ? 1 : 0) +
-                          (n->right ? n->right->num_newlines : 0);
+        recompute_local(n);
     };
     fix(root);
 }
