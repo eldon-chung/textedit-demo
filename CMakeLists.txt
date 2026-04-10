@@ -16,6 +16,7 @@ add_executable(textedit
     main.cpp
     src/buffer/ArrayBuffer.cpp
     src/buffer/BufferVisitor.cpp
+    src/buffer/PieceTable.cpp
     src/buffer/RopeBuffer.cpp
     src/editor/Editor.cpp
     src/display/TUIDisplay.cpp

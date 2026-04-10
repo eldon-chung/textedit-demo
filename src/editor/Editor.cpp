@@ -117,7 +117,7 @@ std::size_t Editor::fetchViewport(std::size_t above, std::size_t below,
 
 void Editor::acceptVisitor(BufferVisitor& v) const {
     std::lock_guard<std::mutex> lock(mutex_);
-    BufferVisitor::EditorCtx ctx{cursor_->logicalPos(), filePath_,
+    BufferVisitor::EditorCtx ctx{cursor_->logicalPos(), cursor_.get(), filePath_,
                                  buf_->bufferTypeName(), dirty_};
     buf_->accept(v, ctx);
 }

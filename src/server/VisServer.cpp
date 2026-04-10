@@ -2,6 +2,7 @@
 
 #include "buffer/ArrayBuffer.hpp"
 #include "buffer/BufferVisitor.hpp"
+#include "buffer/PieceTable.hpp"
 #include "buffer/RopeBuffer.hpp"
 
 #include <httplib.h>
@@ -87,6 +88,56 @@ public:
         dfs(o, root, 0, inorderIdx, first);
 
         o << "\n  ]\n}\n";
+        result = o.str();
+    }
+
+    // PieceTable: serialize backing string + pieces in document order.
+    // Pieces behind cursor are colored blue in the frontend; after = amber.
+    // The cursor sits at the boundary between the two sets.
+    void visit(const PieceTable& buf, const EditorCtx& ctx) override {
+        const std::string&         str       = strOf(buf);
+        std::vector<PieceInfo>     pieces    = piecesOf(buf);
+        std::size_t                numBehind = numBehindOf(buf);
+        std::size_t                relOffset = ctx.cursorHandle
+                                                   ? buf.cursorRelOffset(*ctx.cursorHandle)
+                                                   : 0;
+
+        std::ostringstream o;
+        o << "{\n";
+        o << "  \"bufferType\": \"" << jsonEscape(ctx.bufferType) << "\",\n";
+        o << "  \"filePath\": \""   << jsonEscape(ctx.filePath)   << "\",\n";
+        o << "  \"isDirty\": "      << (ctx.isDirty ? "true" : "false") << ",\n";
+        o << "  \"cursor\": { \"row\": " << ctx.cursor.row
+                          << ", \"col\": " << ctx.cursor.col << " },\n";
+        o << "  \"strLen\": "          << str.size() << ",\n";
+        o << "  \"numBehind\": "       << numBehind << ",\n";
+        o << "  \"cursorRelOffset\": " << relOffset << ",\n";
+        o << "  \"str\": \""           << jsonEscape(str) << "\",\n";
+        o << "  \"pieces\": [\n";
+
+        for (std::size_t i = 0; i < pieces.size(); ++i) {
+            const PieceInfo& p = pieces[i];
+            std::string content = (p.start <= str.size())
+                ? str.substr(p.start, p.end - p.start) : "";
+
+            o << "    {"
+              << " \"idx\": "       << i
+              << ", \"behind\": "   << (p.behind ? "true" : "false")
+              << ", \"start\": "    << p.start
+              << ", \"end\": "      << p.end
+              << ", \"len\": "      << (p.end - p.start)
+              << ", \"content\": \""<< jsonEscape(content) << "\""
+              << ", \"newlines\": [";
+            for (std::size_t j = 0; j < p.newlines.size(); ++j) {
+                if (j > 0) o << ", ";
+                o << p.newlines[j];
+            }
+            o << "] }";
+            if (i + 1 < pieces.size()) o << ",";
+            o << "\n";
+        }
+
+        o << "  ]\n}\n";
         result = o.str();
     }
 
@@ -197,6 +248,55 @@ std::string VisServer::buildHtml() const {
              pointer-events: none; display: none; white-space: pre; }
   #rope-legend { position: absolute; bottom: 8px; left: 12px; font-size: 11px;
                  color: #888; }
+
+  /* ---- Piece table panel ---- */
+  #piece-panel { flex: 1; overflow-y: auto; padding: 4px 0; }
+  .pt-section-label { color: #888; font-size: 11px; margin: 10px 0 4px; text-transform: uppercase; letter-spacing: 1px; }
+  .pt-str { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; margin-bottom: 4px; }
+  .pt-char {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 22px; height: 28px; font-size: 14px; border-radius: 2px;
+    border-left: 2px solid transparent; cursor: default; user-select: none;
+  }
+  .pt-char.behind  { background: #1a2e40; color: #9cdcfe; }
+  .pt-char.after   { background: #2d1f00; color: #ffd080; }
+  .pt-char.piece-start { border-left-color: #555; }
+  .pt-char.cursor-piece {
+    background: #2a5a8a; color: #ffffff;
+    box-shadow: inset 0 2px 0 #3ddc84, inset 0 -2px 0 #3ddc84;
+  }
+  .pt-tape-caret {
+    width: 3px; height: 30px; background: #3ddc84; border-radius: 1px;
+    align-self: center; box-shadow: 0 0 4px #3ddc84;
+  }
+  .pt-pieces { display: flex; flex-direction: column; gap: 3px; }
+  .pt-piece {
+    display: flex; align-items: center; gap: 10px; padding: 6px 10px;
+    border-radius: 4px; border-left: 4px solid transparent; font-size: 13px;
+  }
+  .pt-piece.behind { background: #1a2e40; border-left-color: #4e9af1; }
+  .pt-piece.after  { background: #2d1f00; border-left-color: #f0a500; }
+  .pt-piece.is-cursor { border-left-color: #3ddc84; background: #1f3a58; }
+  .pt-piece-idx    { color: #666; min-width: 24px; }
+  .pt-piece-side   { min-width: 52px; font-weight: bold; }
+  .pt-piece.behind .pt-piece-side { color: #4e9af1; }
+  .pt-piece.after  .pt-piece-side { color: #f0a500; }
+  .pt-piece-range  { color: #666; min-width: 90px; font-size: 11px; }
+  .pt-piece-content {
+    flex: 1; color: #d4d4d4; overflow: hidden; text-overflow: ellipsis;
+    white-space: nowrap; font-size: 16px; letter-spacing: 0.5px;
+  }
+  .pt-piece-caret {
+    color: #3ddc84; font-weight: bold;
+    text-shadow: 0 0 6px #3ddc84;
+    display: inline-block; margin: 0 -1px;
+  }
+  .pt-cursor-badge { color: #3ddc84; font-size: 11px; white-space: nowrap; }
+  .pt-cursor-divider {
+    text-align: center; color: #3ddc84; font-size: 11px;
+    border: 1px dashed #3ddc84; border-radius: 3px; padding: 2px 0; margin: 2px 0;
+  }
+  #piece-legend { margin-top: 12px; font-size: 11px; color: #888; }
 </style>
 </head>
 <body>
@@ -225,6 +325,20 @@ std::string VisServer::buildHtml() const {
     <span style="color:#888">&#9679;</span> EOF &nbsp;
     <span style="color:#3ddc84">&#9679;</span> cursor &nbsp;
     x = text position &nbsp; y = depth
+  </div>
+</div>
+
+<!-- Piece table view -->
+<div id="piece-panel" style="display:none">
+  <div class="pt-section-label">Backing string</div>
+  <div id="pt-str" class="pt-str"></div>
+  <div class="pt-section-label">Pieces (document order)</div>
+  <div id="pt-pieces" class="pt-pieces"></div>
+  <div id="piece-legend">
+    <span style="color:#4e9af1">&#9679;</span> behind cursor &nbsp;
+    <span style="color:#f0a500">&#9679;</span> after cursor &nbsp;
+    <span style="color:#3ddc84">&#9679;</span> cursor piece + caret &nbsp;
+    | = piece boundary
   </div>
 </div>
 
@@ -334,6 +448,121 @@ function renderRope(s) {
   });
 }
 
+function renderPiece(s) {
+  const escapeHtml = t => t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+  // ---- identify cursor piece (= last behind piece) ----
+  // Cursor sits at rel_offset within this piece.
+  const cursorPieceIdx = s.numBehind > 0 ? s.numBehind - 1 : -1;
+  const cursorPiece    = cursorPieceIdx >= 0 ? s.pieces[cursorPieceIdx] : null;
+  const relOffset      = s.cursorRelOffset || 0;
+  // Absolute position in the backing string where the cursor points.
+  // In state B (rel_offset == piece.length), this equals cursorPiece.end.
+  const cursorAbs      = cursorPiece ? (cursorPiece.start + relOffset) : -1;
+
+  // ---- backing string character tape ----
+  const strEl = document.getElementById('pt-str');
+  strEl.innerHTML = '';
+
+  // Build a map: abs_position -> {behind, pieceStart, isCursorPiece}
+  const posInfo = new Array(s.str.length).fill(null).map(() => ({
+    behind: false, pieceStart: false, isCursorPiece: false
+  }));
+  s.pieces.forEach((p, pi) => {
+    for (let i = p.start; i < p.end; i++) {
+      posInfo[i].behind = p.behind;
+      if (i === p.start) posInfo[i].pieceStart = true;
+      if (pi === cursorPieceIdx) posInfo[i].isCursorPiece = true;
+    }
+  });
+
+  const appendCaret = () => {
+    const caret = document.createElement('span');
+    caret.className = 'pt-tape-caret';
+    caret.title = 'cursor (rel_offset=' + relOffset + ')';
+    strEl.appendChild(caret);
+  };
+
+  for (let i = 0; i < s.str.length; i++) {
+    // Insert tape cursor marker before this char if cursor is at position i.
+    if (i === cursorAbs) appendCaret();
+
+    const c = s.str[i];
+    const info = posInfo[i];
+    const span = document.createElement('span');
+    let lbl = c === '\n' ? '\\n' : (c === ' ' ? '\u00b7' : c);
+    span.textContent = lbl;
+    let cls = 'pt-char ' + (info.behind ? 'behind' : 'after');
+    if (info.pieceStart)   cls += ' piece-start';
+    if (info.isCursorPiece) cls += ' cursor-piece';
+    span.className = cls;
+    span.title = 'pos ' + i + (c === '\n' ? ' (newline)' : '');
+    strEl.appendChild(span);
+  }
+  // Trailing caret if cursor is past the last char of str (EOF / end-of-cursor-piece at end).
+  if (cursorAbs === s.str.length) appendCaret();
+
+  // ---- piece list ----
+  const piecesEl = document.getElementById('pt-pieces');
+  piecesEl.innerHTML = '';
+
+  let cursorInserted = false;
+  s.pieces.forEach((p, pi) => {
+    // Insert cursor divider between last behind piece and first after piece
+    if (!cursorInserted && !p.behind) {
+      const div = document.createElement('div');
+      div.className = 'pt-cursor-divider';
+      div.textContent = '\u25bc cursor \u25bc';
+      piecesEl.appendChild(div);
+      cursorInserted = true;
+    }
+
+    const row = document.createElement('div');
+    const isCursorPiece = (pi === cursorPieceIdx);
+    row.className = 'pt-piece ' + (p.behind ? 'behind' : 'after') +
+                    (isCursorPiece ? ' is-cursor' : '');
+
+    // content display: replace \n with visible marker
+    const contentDisplay = p.content.replace(/\n/g, '\u21b5');
+
+    // For the cursor piece, splice a caret into the content at rel_offset
+    // (each byte of p.content maps 1:1 to a visible char, incl. \n → ↵).
+    let contentHtml;
+    if (isCursorPiece) {
+      const clamped = Math.min(relOffset, contentDisplay.length);
+      const before = contentDisplay.substring(0, clamped);
+      const after  = contentDisplay.substring(clamped);
+      contentHtml = escapeHtml(before) +
+                    '<span class="pt-piece-caret">\u2502</span>' +
+                    escapeHtml(after);
+    } else {
+      contentHtml = escapeHtml(contentDisplay);
+    }
+
+    const cursorInfo = isCursorPiece
+      ? ' <span class="pt-cursor-badge">rel_offset=' + relOffset + '</span>'
+      : '';
+
+    row.innerHTML =
+      '<span class="pt-piece-idx">#' + pi + '</span>' +
+      '<span class="pt-piece-side">' + (p.behind ? 'behind' : 'after') + '</span>' +
+      '<span class="pt-piece-range">[' + p.start + ', ' + p.end + ')</span>' +
+      '<span class="pt-piece-content">' + contentHtml + '</span>' +
+      '<span class="pt-piece-idx"> len=' + p.len + ' nl=' + p.newlines.length + '</span>' +
+      cursorInfo;
+
+    piecesEl.appendChild(row);
+  });
+
+  // If all pieces are behind (no after pieces), cursor divider goes at end
+  if (!cursorInserted) {
+    const div = document.createElement('div');
+    div.className = 'pt-cursor-divider';
+    div.textContent = '\u25bc cursor \u25bc';
+    piecesEl.appendChild(div);
+  }
+}
+
 function renderArray(s) {
   const fp = s.filePath || '[No Name]';
   const container = document.getElementById('buffer');
@@ -357,19 +586,27 @@ async function refresh() {
 
     const dirty = s.isDirty ? ' *' : '';
     const fp    = s.filePath || '[No Name]';
-    const isRope = s.bufferType && s.bufferType.toLowerCase().includes('rope');
+    const bt    = (s.bufferType || '').toLowerCase();
+    const isRope  = bt.includes('rope');
+    const isPiece = bt.includes('piece');
+
+    let infoExtra;
+    if (isRope)       infoExtra = '  Nodes: '  + (s.nodes  ? s.nodes.length  : 0);
+    else if (isPiece) infoExtra = '  Pieces: ' + (s.pieces ? s.pieces.length : 0) +
+                                  '  StrLen: ' + (s.strLen || 0);
+    else              infoExtra = '  Lines: '  + (s.lineCount || (s.lines && s.lines.length) || 0);
 
     document.getElementById('info').textContent =
       fp + dirty + '  [' + s.bufferType + ']  ' +
-      'Cursor ' + s.cursor.row + ':' + s.cursor.col +
-      (isRope ? '  Nodes: ' + (s.nodes ? s.nodes.length : 0)
-              : '  Lines: ' + (s.lineCount || (s.lines && s.lines.length) || 0));
+      'Cursor ' + s.cursor.row + ':' + s.cursor.col + infoExtra;
 
-    document.getElementById('array-panel').style.display = isRope ? 'none' : 'block';
-    document.getElementById('rope-panel').style.display  = isRope ? 'block' : 'none';
+    document.getElementById('array-panel').style.display = (!isRope && !isPiece) ? 'block' : 'none';
+    document.getElementById('rope-panel').style.display  = isRope  ? 'block' : 'none';
+    document.getElementById('piece-panel').style.display = isPiece ? 'block' : 'none';
 
-    if (isRope) renderRope(s);
-    else        renderArray(s);
+    if (isRope)       renderRope(s);
+    else if (isPiece) renderPiece(s);
+    else              renderArray(s);
   } catch(e) {
     document.getElementById('info').textContent = 'Connection lost...';
   }
